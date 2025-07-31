@@ -1,0 +1,4 @@
+build_test
+bin
+.vscode
+*.bin
