@@ -87,34 +87,34 @@ int main() {
             exit(EXIT_FAILURE);
         }
     }
-    
-    // // Print matrices
-    // printf("================= Matrix 1 =================\n");
-    // utils::printMatrix_fp16(host_mat1, SEQ_LEN, HIDDEN_SIZE);
-    // printf("================= Matrix 2 =================\n");
-    // utils::printMatrix_fp16(host_mat2, SEQ_LEN, HIDDEN_SIZE);
-    
-    
-    
-    
-    host_result = (float16*)malloc(SEQ_LEN * HIDDEN_SIZE * sizeof(float16));
 
+    host_result = (float16*)malloc(SEQ_LEN * HIDDEN_SIZE * sizeof(float16));
+    
+    // Malloc device memory
     __half* dev_mat1;
     __half* dev_mat2;
     __half* dev_result;
     cudaMalloc(&dev_mat1, SEQ_LEN * HIDDEN_SIZE * sizeof(__half));
     cudaMalloc(&dev_mat2, SEQ_LEN * HIDDEN_SIZE * sizeof(__half));
     cudaMalloc(&dev_result, SEQ_LEN * HIDDEN_SIZE * sizeof(__half));
-
+    // Copy data to device
     cudaMemcpy(dev_mat1, host_mat1, SEQ_LEN * HIDDEN_SIZE * sizeof(__half), cudaMemcpyHostToDevice);
     cudaMemcpy(dev_mat2, host_mat2, SEQ_LEN * HIDDEN_SIZE * sizeof(__half), cudaMemcpyHostToDevice);
-
+    
+    // Do computations
     int num_blocks = (SEQ_LEN * HIDDEN_SIZE + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
     mat_add<<<num_blocks, THREADS_PER_BLOCK>>>(dev_mat1, dev_mat2, dev_result, SEQ_LEN * HIDDEN_SIZE);
 
+    // Copy result data from dev to host
     cudaMemcpy(host_result, dev_result, SEQ_LEN * HIDDEN_SIZE * sizeof(__half), cudaMemcpyDeviceToHost);
-    printf("================= Matrix Result =================\n");
-    utils::printMatrix_fp16(host_result, SEQ_LEN, HIDDEN_SIZE);
+    
+    // Check result
+    for(int i = 0; i < SEQ_LEN * HIDDEN_SIZE; ++i) {
+        // host_result[i]
+        __half_raw raw_half_1;
+        raw_half_1.x = host_mat1[i];
+        float 
+    }
 
     free(host_result);
     munmap(host_mat1, file_size1);
