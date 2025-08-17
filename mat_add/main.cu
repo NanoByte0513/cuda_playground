@@ -6,6 +6,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>  // struct stat, fstat()
 #include <cstdint>
+#include <math.h>
 
 #define THREADS_PER_BLOCK (128)
 
@@ -94,27 +95,42 @@ int main() {
     __half* dev_mat1;
     __half* dev_mat2;
     __half* dev_result;
-    cudaMalloc(&dev_mat1, SEQ_LEN * HIDDEN_SIZE * sizeof(__half));
-    cudaMalloc(&dev_mat2, SEQ_LEN * HIDDEN_SIZE * sizeof(__half));
-    cudaMalloc(&dev_result, SEQ_LEN * HIDDEN_SIZE * sizeof(__half));
+    CHECK_CUDA_ERROR(cudaMalloc(&dev_mat1, SEQ_LEN * HIDDEN_SIZE * sizeof(__half)));
+    CHECK_CUDA_ERROR(cudaMalloc(&dev_mat2, SEQ_LEN * HIDDEN_SIZE * sizeof(__half)));
+    CHECK_CUDA_ERROR(cudaMalloc(&dev_result, SEQ_LEN * HIDDEN_SIZE * sizeof(__half)));
     // Copy data to device
-    cudaMemcpy(dev_mat1, host_mat1, SEQ_LEN * HIDDEN_SIZE * sizeof(__half), cudaMemcpyHostToDevice);
-    cudaMemcpy(dev_mat2, host_mat2, SEQ_LEN * HIDDEN_SIZE * sizeof(__half), cudaMemcpyHostToDevice);
+    CHECK_CUDA_ERROR(cudaMemcpy(dev_mat1, host_mat1, SEQ_LEN * HIDDEN_SIZE * sizeof(__half), cudaMemcpyHostToDevice));
+    CHECK_CUDA_ERROR(cudaMemcpy(dev_mat2, host_mat2, SEQ_LEN * HIDDEN_SIZE * sizeof(__half), cudaMemcpyHostToDevice));
     
     // Do computations
     int num_blocks = (SEQ_LEN * HIDDEN_SIZE + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
     mat_add<<<num_blocks, THREADS_PER_BLOCK>>>(dev_mat1, dev_mat2, dev_result, SEQ_LEN * HIDDEN_SIZE);
+    CHECK_CUDA_ERROR(cudaDeviceSynchronize());
 
     // Copy result data from dev to host
-    cudaMemcpy(host_result, dev_result, SEQ_LEN * HIDDEN_SIZE * sizeof(__half), cudaMemcpyDeviceToHost);
+    CHECK_CUDA_ERROR(cudaMemcpy(host_result, dev_result, SEQ_LEN * HIDDEN_SIZE * sizeof(__half), cudaMemcpyDeviceToHost));
     
     // Check result
+    bool checkNoError = true;
     for(int i = 0; i < SEQ_LEN * HIDDEN_SIZE; ++i) {
-        // host_result[i]
         __half_raw raw_half_1;
         raw_half_1.x = host_mat1[i];
-        float 
+        float fp1 = __half2float(raw_half_1);
+
+        __half_raw raw_half_2;
+        raw_half_2.x = host_mat2[i];
+        float fp2 = __half2float(raw_half_2);
+
+        __half_raw raw_half_result;
+        raw_half_result.x = host_result[i];
+        float diff = fp1 + fp2 - __half2float(raw_half_result);
+        if(fabs(diff) > 1e-2) {
+            checkNoError = false;
+            printf("result[%d]: %.4f\n", i, diff);
+        }
     }
+    if(checkNoError)
+        printf("No error! \n");
 
     free(host_result);
     munmap(host_mat1, file_size1);
@@ -122,8 +138,8 @@ int main() {
     munmap(host_mat2, file_size2);
     close(file_descriptor_2);
 
-    cudaFree(dev_mat1);
-    cudaFree(dev_mat2);
-    cudaFree(dev_result);
+    CHECK_CUDA_ERROR(cudaFree(dev_mat1));
+    CHECK_CUDA_ERROR(cudaFree(dev_mat2));
+    CHECK_CUDA_ERROR(cudaFree(dev_result));
     return 0;
 }

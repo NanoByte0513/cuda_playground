@@ -1,0 +1,9 @@
+Device 0: NVIDIA GeForce RTX 3060
+  Compute Capability      : 8.6
+  Global Memory           : 11.64 GB
+  Shared memory per block : 48.00 KB
+  Regs per block          : 65536
+  Multiprocessors         : 28
+  Max Threads per Block   : 1024
+  Max Block Dimensions    : (1024, 1024, 64)
+  Clock Rate              : 1.78 GHz
