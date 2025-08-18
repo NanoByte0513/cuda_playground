@@ -9,13 +9,13 @@ set(CUTLASS_NVCC_ARCHS 80)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${ROOT_DIR}/bin)
 
-find_package(CUDA REQUIRED)
+find_package(CUDAToolkit REQUIRED)
 include_directories(${CUDA_INCLUDE_DIRS} ${ROOT_DIR} ${CUTLASS_INCLUDE_PATH} ${CUTLASS_UTILS_INCLUDE_PATH})
 
 # Add exe
 add_executable(test_cuda ${ROOT_DIR}/try_cutlass/main.cu)
 
-target_link_libraries(test_cuda ${CUDA_LIBRARIES})
+target_link_libraries(test_cuda ${CUDA_LIBRARIES} CUDA::cublas)
 
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     target_compile_options(test_cuda PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-G>)

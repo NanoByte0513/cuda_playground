@@ -1,8 +1,6 @@
-/**
- * 这一个也跑通了，与16*8*8的区别就是block的k维度变成了16，所以117行的循环会执行两次累加，但结果矩阵C的shape没有变。
- * 即一个threadblock负责的C矩阵大小是warp负责的C矩阵大小的两倍，但一个threadblock只有一个warp，所以需要循环迭代一次
- */
-
+#include <cuda_runtime.h>
+#include <cublas_v2.h>
+#include <cutlass/half.h>
 #include <cutlass/cutlass.h>
 #include <cutlass/aligned_buffer.h>
 #include <cute/tensor.hpp>
@@ -16,6 +14,7 @@
 #include "utils/utils.cuh"
 #include <fcntl.h>
 #include <unistd.h>
+#include <random>
 
 #define LEN_M 16
 #define LEN_N 8
@@ -38,10 +37,8 @@ using Mma = typename cutlass::gemm::warp::DefaultMmaTensorOp<
       WarpShape, InstructionShape, ElementInputA, LayoutInputA, ElementInputB, LayoutInputB, ElementOutput,
       cutlass::layout::RowMajor>::Type;
 
-constexpr char* tensor_path_1 = "/home/wuyou/cuda_playground/try_cutlass/tensor1_fp16_16_16.bin";
-constexpr char* tensor_path_2 = "/home/wuyou/cuda_playground/try_cutlass/tensor2_fp16_8_16.bin";
-using float16 = uint16_t;
 
+using float16 = uint16_t;
 /// Test kernel
 __global__ void kernel(
     typename Mma::ElementC *output_C, 
@@ -57,21 +54,22 @@ __global__ void kernel(
     __shared__ cutlass::AlignedBuffer<
         typename Mma::ElementB, ThreadblockShape::kN * ThreadblockShape::kK> smem_buffer_B;
 
+    // Read whole block to smem
     if (threadIdx.x == 0) {
         typename Mma::ElementA *smem_ptr_A = smem_buffer_A.data();
         #pragma unroll 1
         for (size_t i = 0; i < smem_buffer_A.size(); ++i) {
-        cutlass::ReferenceFactory<typename Mma::ElementA>::get(smem_ptr_A, i) =
-            cutlass::ReferenceFactory<typename cutlass::platform::remove_const<
-                typename Mma::ElementA>::type>::get(input_A, i);
+            cutlass::ReferenceFactory<typename Mma::ElementA>::get(smem_ptr_A, i) =
+                cutlass::ReferenceFactory<typename cutlass::platform::remove_const<
+                    typename Mma::ElementA>::type>::get(input_A, i);
         }
 
         typename Mma::ElementB *smem_ptr_B = smem_buffer_B.data();
         #pragma unroll 1
         for (size_t i = 0; i < smem_buffer_B.size(); ++i) {
-        cutlass::ReferenceFactory<typename Mma::ElementB>::get(smem_ptr_B, i) =
-            cutlass::ReferenceFactory<typename cutlass::platform::remove_const<
-                typename Mma::ElementB>::type>::get(input_B, i);
+            cutlass::ReferenceFactory<typename Mma::ElementB>::get(smem_ptr_B, i) =
+                cutlass::ReferenceFactory<typename cutlass::platform::remove_const<
+                    typename Mma::ElementB>::type>::get(input_B, i);
         }
     }
 
@@ -99,23 +97,19 @@ __global__ void kernel(
 
     typename Mma::LayoutA layout_A = Mma::LayoutA::packed({ThreadblockShape::kM, ThreadblockShape::kK});
     typename Mma::LayoutB layout_B = Mma::LayoutB::packed({ThreadblockShape::kK, ThreadblockShape::kN});
-    typename Mma::LayoutC layout_C = Mma::LayoutC::packed({Mma::Shape::kM, Mma::Shape::kN});
+    typename Mma::LayoutC layout_C = Mma::LayoutC::packed({Mma::Shape::kM, Mma::Shape::kN}); // Mma::Shape实际上是WarpShape而不是InstructionShape
 
     typename Mma::IteratorA iter_A({smem_buffer_A.data(), layout_A}, cutlass::arch::LaneId());
     typename Mma::IteratorB iter_B({smem_buffer_B.data(), layout_B}, cutlass::arch::LaneId());
 
     FragmentA frag_A;
     FragmentB frag_B;
-
     FragmentC accum;
-
-    Mma mma;
-
     accum.clear();
 
-
+    Mma mma;
     CUTLASS_PRAGMA_UNROLL
-    for (int k = 0; k < ThreadblockShape::kK; k += Mma::Policy::MmaShape::kK) {
+    for (int k = 0; k < ThreadblockShape::kK; k += Mma::Policy::MmaShape::kK) { // Mma::Policy::MmaShape是InstructionShape
         iter_A.load(frag_A);
         iter_B.load(frag_B);
 
@@ -131,6 +125,7 @@ __global__ void kernel(
 }
 
 
+
 int main() {
     // Create a tuple of problem size for matrix multiplication
     cutlass::gemm::GemmCoord problem_size(LEN_M, LEN_N, LEN_K);
@@ -141,44 +136,39 @@ int main() {
     cutlass::HostTensor<ElementInputB, LayoutInputB> tensor_b(
         problem_size.kn());  // <- Create matrix B with dimensions K x N
     cutlass::HostTensor<ElementOutput, LayoutOutput> tensor_d(
-        problem_size.mn());  // <- Create matrix D with dimensions M x N used to store output from CUTLASS kernel
-    
-    // // Fill input and output matrices on host using CUTLASS helper functions
-    // cutlass::reference::host::TensorFillRandomUniform(
-    //     tensor_a.host_view(),
-    //     1,
-    //     ElementInputA(4),
-    //     ElementInputA(-4),
-    //     0);  // <- Fill matrix A on host with uniform-distribution random data
-    // cutlass::reference::host::TensorFillRandomUniform(
-    //     tensor_b.host_view(),
-    //     1,
-    //     ElementInputB(4),
-    //     ElementInputB(-4),
-    //     0);  // <- Fill matrix B on host with uniform-distribution random data
+        problem_size.mn());
     cutlass::reference::host::TensorFill(
         tensor_d.host_view());  // <- fill matrix D on host with zeros
 
-    // Host malloc
-    float16* host_tensor1;
-    int fd1;
-    size_t file_size1;
-    host_tensor1 = static_cast<float16*>(utils::openBin(tensor_path_1, fd1, file_size1));
 
-    float16* host_tensor2;
-    int fd2;
-    size_t file_size2;
-    host_tensor2 = static_cast<float16*>(utils::openBin(tensor_path_2, fd2, file_size2));
+    
+    cutlass::half_t *h_A = new cutlass::half_t[LEN_M * LEN_K];
+    cutlass::half_t *h_B = new cutlass::half_t[LEN_K * LEN_N];
+    cutlass::half_t *h_C = new cutlass::half_t[LEN_M * LEN_N];  // cuBLAS计算结果
+
+    // 初始化输入矩阵（随机值）
+    for (int i = 0; i < LEN_M * LEN_K; i++) h_A[i] = static_cast<cutlass::half_t>(static_cast<float>(rand()) / RAND_MAX);
+    for (int i = 0; i < LEN_K * LEN_N; i++) h_B[i] = static_cast<cutlass::half_t>(static_cast<float>(rand()) / RAND_MAX);
+
+    // 设备内存分配（GPU）
+    cutlass::half_t *d_A, *d_B, *d_C;
+    cudaMalloc((void**)&d_A, LEN_M * LEN_K * sizeof(cutlass::half_t));
+    cudaMalloc((void**)&d_B, LEN_K * LEN_N * sizeof(cutlass::half_t));
+    cudaMalloc((void**)&d_C, LEN_M * LEN_N * sizeof(cutlass::half_t));
+
+    // 数据从主机复制到设备
+    cudaMemcpy(d_A, h_A, LEN_M * LEN_K * sizeof(cutlass::half_t), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_B, h_B, LEN_K * LEN_N * sizeof(cutlass::half_t), cudaMemcpyHostToDevice);
 
     // 复制数据到 tensor_a
     size_t num_elements = tensor_a.size();
     size_t size_in_bytes = num_elements * sizeof(ElementInputA);
-    std::memcpy(tensor_a.host_data(), host_tensor1, size_in_bytes);
+    std::memcpy(tensor_a.host_data(), h_A, size_in_bytes);
 
     // 复制数据到 tensor_b
     num_elements = tensor_b.size();
     size_in_bytes = num_elements * sizeof(ElementInputB);
-    std::memcpy(tensor_b.host_data(), host_tensor2, size_in_bytes);
+    std::memcpy(tensor_b.host_data(), h_B, size_in_bytes);
 
     // Copy data from host to GPU
     tensor_a.sync_device();
@@ -187,20 +177,59 @@ int main() {
 
     kernel<<<dim3(1, 1, 1), dim3(32, 1, 1)>>>(tensor_d.device_data(), tensor_a.device_data(), tensor_b.device_data());
     cudaDeviceSynchronize();
-
-    // Copy output data from dev to host
     tensor_d.sync_host();
-    for(int i = 0; i < tensor_d.size(); ++i) {
-        printf("%9.6f%c", tensor_d.host_data()[i], (i + 1) % LEN_N ? ' ' : '\n');
-        // if(i > 64)
-        //     break;
-    }
-    printf("\n");
 
-    
-    munmap(host_tensor1, file_size1);
-    close(fd1);
-    munmap(host_tensor2, file_size2);
-    close(fd2);
+
+    // 创建cuBLAS句柄
+    cublasHandle_t handle;
+    cublasCreate(&handle);
+
+    cublasSetMathMode(handle, CUBLAS_TENSOR_OP_MATH);
+
+    // 定义标量参数（alpha=1, beta=0: C = A*B）
+    float alpha = 1.0f;
+    float beta = 0.0f;
+
+    // 调用cuBLAS半精度矩阵乘法（cublasGemmEx
+    cublasGemmEx(
+        handle,
+        CUBLAS_OP_T,                     // A不转置（行优先）
+        CUBLAS_OP_N,                     // B不转置（行优先）
+        LEN_M, LEN_N, LEN_K,             
+        &alpha,                           // alpha标量
+        d_A, CUDA_R_16F, LEN_M,              // A矩阵（行优先，列数=K）
+        d_B, CUDA_R_16F, LEN_K,              // B矩阵（行优先，列数=N）
+        &beta,                            // beta标量
+        d_C, CUDA_R_16F, LEN_K,              // 输出C（行优先，列数=N）
+        CUDA_R_32F,                      // 内部计算精度（float避免累积误差）
+        CUBLAS_GEMM_DEFAULT_TENSOR_OP    // 使用Tensor Core
+    );
+    // 这里得到的C矩阵结果是对的，但是是转置后的（按列存储的）
+
+    cudaMemcpy(h_C, d_C, LEN_M * LEN_N * sizeof(cutlass::half_t), cudaMemcpyDeviceToHost);
+
+    bool noError = true;
+    for(int i = 0; i < LEN_M * LEN_N; ++i) {
+        float cub_val = h_C[(i % LEN_N) * LEN_M + i / LEN_N];
+        float ker_val = tensor_d.host_data()[i];
+        float diff = fabs(cub_val - ker_val);
+        if(diff > 1e-2) {
+            printf("[%d]: cub_val = %.4f, ker_val = %.4f, diff = %.4f\n", i, cub_val, ker_val, diff);
+            noError = false;
+        }
+    }
+    if(noError)
+        printf("no error\n");
+
+
+
+    // 释放资源
+    delete[] h_A;
+    delete[] h_B;
+    delete[] h_C;
+    cudaFree(d_A);
+    cudaFree(d_B);
+    cudaFree(d_C);
+    cublasDestroy(handle);
     return 0;
 }
