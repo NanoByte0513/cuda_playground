@@ -16,7 +16,7 @@
 #include <unistd.h>
 #include <random>
 
-#define LEN_M 16
+#define LEN_M 32
 #define LEN_N 8
 #define LEN_K 128
 
@@ -69,17 +69,17 @@ __global__ void kernel(
     int warpIdx = threadIdx.x / warpSize;
     cute::Tensor smem_tensorA_warp_tile = cute::local_tile(
         smem_tensorA, 
-        cute::make_shape(ThreadblockShape::kM, ThreadblockShape::kK), 
+        cute::make_shape(ThreadblockShape::kM / 2, ThreadblockShape::kK), 
         cute::make_coord(warpIdx % 2, warpIdx / 2)
     );
     cute::Tensor smem_tensorB_warp_tile = cute::local_tile(
         smem_tensorB, 
         cute::make_shape(ThreadblockShape::kK, ThreadblockShape::kN), 
-        cute::make_coord(warpIdx % 2, warpIdx / 2)
+        cute::make_coord(0, warpIdx / 2)
     );
     cute::Tensor gmem_tensorC_warp_tile = cute::local_tile(
         gmem_tensorC, 
-        cute::make_shape(ThreadblockShape::kM, ThreadblockShape::kN), 
+        cute::make_shape(ThreadblockShape::kM / 2, ThreadblockShape::kN), 
         cute::make_coord(warpIdx % 2, warpIdx / 2)
     );
 
@@ -91,9 +91,9 @@ __global__ void kernel(
     using FragmentB = typename Mma::FragmentB;
     using FragmentC = typename Mma::FragmentC;
 
-    typename Mma::LayoutA layout_A = Mma::LayoutA::packed({ThreadblockShape::kM, ThreadblockShape::kK});
+    typename Mma::LayoutA layout_A = Mma::LayoutA::packed({ThreadblockShape::kM / 2, ThreadblockShape::kK});
     typename Mma::LayoutB layout_B = Mma::LayoutB::packed({ThreadblockShape::kK, ThreadblockShape::kN});
-    typename Mma::LayoutC layout_C = Mma::LayoutC::packed({Mma::Shape::kM, Mma::Shape::kN}); // Mma::Shape实际上是WarpShape而不是InstructionShape
+    typename Mma::LayoutC layout_C = Mma::LayoutC::packed({Mma::Shape::kM / 2, Mma::Shape::kN}); // Mma::Shape实际上是WarpShape而不是InstructionShape
 
     typename Mma::IteratorA iter_A({&(smem_tensorA_warp_tile[0]), layout_A}, cutlass::arch::LaneId());
     typename Mma::IteratorB iter_B({&(smem_tensorB_warp_tile[0]), layout_B}, cutlass::arch::LaneId());
@@ -171,7 +171,7 @@ int main() {
     tensor_b.sync_device();
     tensor_d.sync_device();
 
-    kernel<<<dim3(1, 1, 1), dim3(32, 1, 1)>>>(tensor_d.device_data(), tensor_a.device_data(), tensor_b.device_data());
+    kernel<<<dim3(1), dim3(64)>>>(tensor_d.device_data(), tensor_a.device_data(), tensor_b.device_data());
     cudaDeviceSynchronize();
     tensor_d.sync_host();
 
