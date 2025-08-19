@@ -18,7 +18,7 @@
 
 #define LEN_M 16
 #define LEN_N 8
-#define LEN_K 512
+#define LEN_K 128
 
 using ElementAccumulator = float;
 using ElementComputeEpilogue = ElementAccumulator;
@@ -65,6 +65,24 @@ __global__ void kernel(
 
     __syncthreads();
 
+    // Split block tile to warp tiles
+    int warpIdx = threadIdx.x / warpSize;
+    cute::Tensor smem_tensorA_warp_tile = cute::local_tile(
+        smem_tensorA, 
+        cute::make_shape(ThreadblockShape::kM, ThreadblockShape::kK), 
+        cute::make_coord(warpIdx % 2, warpIdx / 2)
+    );
+    cute::Tensor smem_tensorB_warp_tile = cute::local_tile(
+        smem_tensorB, 
+        cute::make_shape(ThreadblockShape::kK, ThreadblockShape::kN), 
+        cute::make_coord(warpIdx % 2, warpIdx / 2)
+    );
+    cute::Tensor gmem_tensorC_warp_tile = cute::local_tile(
+        gmem_tensorC, 
+        cute::make_shape(ThreadblockShape::kM, ThreadblockShape::kN), 
+        cute::make_coord(warpIdx % 2, warpIdx / 2)
+    );
+
     //
     // Construct warp-level matrix product
     //
@@ -77,8 +95,8 @@ __global__ void kernel(
     typename Mma::LayoutB layout_B = Mma::LayoutB::packed({ThreadblockShape::kK, ThreadblockShape::kN});
     typename Mma::LayoutC layout_C = Mma::LayoutC::packed({Mma::Shape::kM, Mma::Shape::kN}); // Mma::Shape实际上是WarpShape而不是InstructionShape
 
-    typename Mma::IteratorA iter_A({smem_buffer_A.data(), layout_A}, cutlass::arch::LaneId());
-    typename Mma::IteratorB iter_B({smem_buffer_B.data(), layout_B}, cutlass::arch::LaneId());
+    typename Mma::IteratorA iter_A({&(smem_tensorA_warp_tile[0]), layout_A}, cutlass::arch::LaneId());
+    typename Mma::IteratorB iter_B({&(smem_tensorB_warp_tile[0]), layout_B}, cutlass::arch::LaneId());
 
     FragmentA frag_A;
     FragmentB frag_B;
@@ -97,7 +115,7 @@ __global__ void kernel(
         mma(accum, frag_A, frag_B, accum);
     }
   
-    typename Mma::IteratorC iter_C({output_C, layout_C}, cutlass::arch::LaneId());
+    typename Mma::IteratorC iter_C({&(gmem_tensorC_warp_tile[0]), layout_C}, cutlass::arch::LaneId());
 
     iter_C.store(accum);
 }
