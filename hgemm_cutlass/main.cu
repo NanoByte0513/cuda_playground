@@ -70,7 +70,7 @@ __global__ void kernel(
     cute::Tensor smem_tensorA_warp_tile = cute::local_tile(
         smem_tensorA, 
         cute::make_shape(ThreadblockShape::kM / 2, ThreadblockShape::kK), 
-        cute::make_coord(warpIdx % 2, warpIdx / 2)
+        cute::make_coord(warpIdx, 0)
     );
     cute::Tensor smem_tensorB_warp_tile = cute::local_tile(
         smem_tensorB, 
@@ -80,7 +80,7 @@ __global__ void kernel(
     cute::Tensor gmem_tensorC_warp_tile = cute::local_tile(
         gmem_tensorC, 
         cute::make_shape(ThreadblockShape::kM / 2, ThreadblockShape::kN), 
-        cute::make_coord(warpIdx % 2, warpIdx / 2)
+        cute::make_coord(warpIdx, 0)
     );
 
     //
@@ -204,18 +204,19 @@ int main() {
 
     cudaMemcpy(h_C, d_C, LEN_M * LEN_N * sizeof(cutlass::half_t), cudaMemcpyDeviceToHost);
 
-    bool noError = true;
+    int num_error = 0;
+    int num_total = 0;
     for(int i = 0; i < LEN_M * LEN_N; ++i) {
         float cub_val = h_C[(i % LEN_N) * LEN_M + i / LEN_N];
         float ker_val = tensor_d.host_data()[i];
         float diff = fabs(cub_val - ker_val);
         if(diff > 1e-2) {
-            printf("[%d]: cub_val = %.4f, ker_val = %.4f, diff = %.4f\n", i, cub_val, ker_val, diff);
-            noError = false;
+            printf("[%d], ", i);
+            num_error++;
         }
+        num_total++;
     }
-    if(noError)
-        printf("no error\n");
+    printf("\nnum_error: %d, num_total: %d\n", num_error, num_total);
 
 
 
