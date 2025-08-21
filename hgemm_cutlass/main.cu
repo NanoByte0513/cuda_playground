@@ -70,17 +70,17 @@ __global__ void kernel(
     cute::Tensor smem_tensorA_warp_tile = cute::local_tile(
         smem_tensorA, 
         cute::make_shape(ThreadblockShape::kM / 2, ThreadblockShape::kK), 
-        cute::make_coord(warpIdx, 0)
+        cute::make_coord(warpIdx)
     );
     cute::Tensor smem_tensorB_warp_tile = cute::local_tile(
         smem_tensorB, 
         cute::make_shape(ThreadblockShape::kK, ThreadblockShape::kN), 
-        cute::make_coord(0, warpIdx / 2)
+        cute::make_coord(0)
     );
     cute::Tensor gmem_tensorC_warp_tile = cute::local_tile(
         gmem_tensorC, 
         cute::make_shape(ThreadblockShape::kM / 2, ThreadblockShape::kN), 
-        cute::make_coord(warpIdx, 0)
+        cute::make_coord(warpIdx)
     );
 
     //
