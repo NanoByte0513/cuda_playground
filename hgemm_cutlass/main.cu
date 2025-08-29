@@ -189,25 +189,24 @@ int main() {
     // 调用cuBLAS半精度矩阵乘法（cublasGemmEx
     cublasGemmEx(
         handle,
-        CUBLAS_OP_T,                     // A要转置，因为cublass默认列主序
-        CUBLAS_OP_N,                     // B不转置，保持
-        LEN_M, LEN_N, LEN_K,             
+        CUBLAS_OP_N,                     
+        CUBLAS_OP_N,                     
+        LEN_N, LEN_M, LEN_K,             
         &alpha,                           
-        d_A, CUDA_R_16F, LEN_K,              // 列数K
-        d_B, CUDA_R_16F, LEN_K,              // 
+        d_B, CUDA_R_16F, LEN_N,              
+        d_A, CUDA_R_16F, LEN_K,               
         &beta,                            
-        d_C, CUDA_R_16F, LEN_M,              // 行数M
-        CUDA_R_32F,                      // 内部计算精度（float避免累积误差）
-        CUBLAS_GEMM_DEFAULT_TENSOR_OP    // 使用Tensor Core
-    );
-    // 这里得到的C矩阵结果是对的，但是是转置后的（按列存储的）
+        d_C, CUDA_R_16F, LEN_N,              
+        CUDA_R_32F,                      
+        CUBLAS_GEMM_DEFAULT_TENSOR_OP
+    ); // 这里得到的C是按行存储的，直接C[i]访问
 
     cudaMemcpy(h_C, d_C, LEN_M * LEN_N * sizeof(cutlass::half_t), cudaMemcpyDeviceToHost);
 
     int num_error = 0;
     int num_total = 0;
     for(int i = 0; i < LEN_M * LEN_N; ++i) {
-        float cub_val = h_C[(i % LEN_N) * LEN_M + i / LEN_N];
+        float cub_val = h_C[i];
         float ker_val = tensor_d.host_data()[i];
         float diff = fabs(cub_val - ker_val);
         if(diff > 1e-2) {
