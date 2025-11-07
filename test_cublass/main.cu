@@ -45,9 +45,10 @@ bool check_product(const char* path1, const char* path2, const char* path_produc
     /**
      * cublass内部是列主序的，输入的A(M*K)和B(K*N)都是按行主序存储的，因此输入的A会被看作A^T, B会看作B^T，
      * 则为了输出的C能够按行存储，我们希望输出的计算结果是C^T而不是C，
-     * 需要把C = A @ B换成 C = (B^T @ A^T)^T
+     * 需要把C = A @ B换成 C^T = (B^T @ A^T)，对应的shape为B^T(N*K), A^T(K*M), C^T(N*M)
      * 所以输入是B,A而不是A,B，又因为本身输入的BA都会被视为转置，所以参数12不需要转置。
      * 参数345不应该是MNK而是NMK对应B(N*K), A(M*K)
+     * ldA, ldB, ldC可以看成在存储里面，ABC存储的主序是什么（经过多少个元素换行，对于A矩阵每K个元素换行）
      */
     cublasGemmEx(
         handle,

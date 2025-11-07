@@ -13,7 +13,7 @@ find_package(CUDAToolkit REQUIRED)
 include_directories(${CUDA_INCLUDE_DIRS} ${ROOT_DIR} ${CUTLASS_INCLUDE_PATH} ${CUTLASS_UTILS_INCLUDE_PATH})
 
 # Add exe
-add_executable(test_cuda ${ROOT_DIR}/hgemm_cute/main.cu)
+add_executable(test_cuda ${ROOT_DIR}/test_cublass/main.cu)
 
 target_link_libraries(test_cuda ${CUDA_LIBRARIES} CUDA::cublas)
 
